@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 
 interface Props {
   uri: string;
@@ -10,61 +10,38 @@ interface Props {
 }
 
 export default function AudioPlayer({ uri, duration, mine }: Props) {
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [position, setPosition] = useState(0);
-  const totalMs = (duration ?? 0) * 1000;
+  const player = useAudioPlayer(uri, { updateInterval: 200 });
+  const status = useAudioPlayerStatus(player);
 
   useEffect(() => {
-    return () => {
-      soundRef.current?.unloadAsync();
-    };
+    setAudioModeAsync({ playsInSilentMode: true });
   }, []);
 
-  const togglePlay = async () => {
-    await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-    if (!soundRef.current) {
-      const { sound } = await Audio.Sound.createAsync(
-        { uri },
-        { progressUpdateIntervalMillis: 200 },
-      );
-      soundRef.current = sound;
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (!status.isLoaded) return;
-        setPosition(status.positionMillis);
-        if (status.didJustFinish) {
-          setPlaying(false);
-          setPosition(0);
-          soundRef.current?.setPositionAsync(0);
-        }
-      });
-      await sound.setRateAsync(speed, true);
-      await sound.playAsync();
-      setPlaying(true);
-      return;
+  useEffect(() => {
+    if (status.didJustFinish) {
+      player.seekTo(0);
     }
-    const status = await soundRef.current.getStatusAsync();
-    if (!status.isLoaded) return;
-    if (status.isPlaying) {
-      await soundRef.current.pauseAsync();
-      setPlaying(false);
+  }, [status.didJustFinish, player]);
+
+  const togglePlay = () => {
+    if (status.playing) {
+      player.pause();
     } else {
-      await soundRef.current.playAsync();
-      setPlaying(true);
+      player.play();
     }
   };
 
-  const toggleSpeed = async () => {
+  const toggleSpeed = () => {
     const next = speed === 1 ? 2 : 1;
     setSpeed(next);
-    await soundRef.current?.setRateAsync(next, true);
+    player.playbackRate = next;
   };
 
-  const progress = totalMs > 0 ? position / totalMs : 0;
-  const elapsed = Math.floor(position / 1000);
-  const total = Math.floor(duration ?? 0);
-  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const position = status.currentTime;
+  const total = duration ?? 0;
+  const progress = total > 0 ? position / total : 0;
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
 
   const trackColor = mine ? 'rgba(255,255,255,0.3)' : '#ddd';
   const fillColor = mine ? '#fff' : '#222';
@@ -75,7 +52,7 @@ export default function AudioPlayer({ uri, duration, mine }: Props) {
     <View style={styles.container}>
       <TouchableOpacity onPress={togglePlay} style={styles.playBtn}>
         <Ionicons
-          name={playing ? 'pause-circle' : 'play-circle'}
+          name={status.playing ? 'pause-circle' : 'play-circle'}
           size={32}
           color={iconColor}
         />
@@ -90,7 +67,7 @@ export default function AudioPlayer({ uri, duration, mine }: Props) {
           />
         </View>
         <Text style={[styles.time, { color: textColor }]}>
-          {fmt(elapsed)} / {fmt(total)}
+          {fmt(position)} / {fmt(total)}
         </Text>
       </View>
       <TouchableOpacity onPress={toggleSpeed} style={styles.speedBtn}>

@@ -1,7 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+  RecordingPresets,
+} from 'expo-audio';
 
 interface Props {
   onRecorded: (uri: string, duration: number) => void;
@@ -9,62 +15,49 @@ interface Props {
 }
 
 export default function AudioRecorder({ onRecorded, onCancel }: Props) {
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [seconds, setSeconds] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const state = useAudioRecorderState(recorder, 1000);
   const pulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     startRecording();
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!recording) return;
-    intervalRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
-    Animated.loop(
+    if (!state.isRecording) return;
+    const anim = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1.3, duration: 600, useNativeDriver: true }),
         Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true }),
       ]),
-    ).start();
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
+    );
+    anim.start();
+    return () => anim.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recording]);
+  }, [state.isRecording]);
 
   const startRecording = async () => {
-    const { status } = await Audio.requestPermissionsAsync();
-    if (status !== 'granted') {
+    const { granted } = await requestRecordingPermissionsAsync();
+    if (!granted) {
       onCancel();
       return;
     }
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-    });
-    const { recording: rec } = await Audio.Recording.createAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY,
-    );
-    setRecording(rec);
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+    await recorder.prepareToRecordAsync();
+    recorder.record();
   };
 
   const stop = async (send: boolean) => {
-    if (!recording) return;
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    await recording.stopAndUnloadAsync();
-    const uri = recording.getURI();
-    if (send && uri) {
-      onRecorded(uri, seconds);
+    await recorder.stop();
+    if (send && recorder.uri) {
+      onRecorded(recorder.uri, Math.round(state.durationMillis / 1000));
     } else {
       onCancel();
     }
   };
 
+  const seconds = Math.round(state.durationMillis / 1000);
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
   return (

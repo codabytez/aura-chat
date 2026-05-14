@@ -27,7 +27,7 @@
     "@react-navigation/elements": "^2.9.10",
     "@react-navigation/native": "^7.1.33",
     "expo": "~55.0.19",
-    "expo-av": "^16.0.8",
+    "expo-audio": "~55.0.14",
     "expo-constants": "~55.0.15",
     "expo-file-system": "~55.0.20",
     "expo-font": "~55.0.7",
